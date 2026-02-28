@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VAULT — Gestionnaire de mots de passe</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #050818;
+    --glass: rgba(255,255,255,0.05);
+    --glass-border: rgba(255,255,255,0.12);
+    --glass-hover: rgba(255,255,255,0.09);
+    --accent: #7c6bff;
+    --accent2: #ff6b9d;
+    --accent3: #6bffd4;
+    --text: #e8e6ff;
+    --text-muted: rgba(232,230,255,0.45);
+    --danger: #ff4f6b;
+    --success: #4fffb4;
+    --card-radius: 20px;
+    --font: 'Syne', sans-serif;
+    --mono: 'DM Mono', monospace;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    overflow-x: hidden;
+  }
+
+  /* Animated background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 10%, rgba(124,107,255,0.18) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 80%, rgba(255,107,157,0.12) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 40% at 60% 30%, rgba(107,255,212,0.08) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Grain overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.6;
+  }
+
+  #app { position: relative; z-index: 1; min-height: 100vh; }
+
+  /* ─── LOCK SCREEN ─── */
+  #lock-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 2rem;
+    animation: fadeIn 0.6s ease;
+  }
+
+  .lock-logo {
+    font-size: 3.5rem;
+    font-weight: 800;
+    letter-spacing: -2px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.25rem;
+  }
+
+  .lock-tagline {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 3rem;
+  }
+
+  .lock-card {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-radius: 28px;
+    padding: 2.5rem;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 32px 64px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.03) inset;
+  }
+
+  .lock-card h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+  }
+
+  .input-group {
+    position: relative;
+    margin-bottom: 1rem;
+  }
+
+  .input-group input {
+    width: 100%;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 0.85rem 3rem 0.85rem 1rem;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    outline: none;
+    transition: all 0.2s;
+  }
+
+  .input-group input:focus {
+    border-color: var(--accent);
+    background: rgba(124,107,255,0.08);
+    box-shadow: 0 0 0 3px rgba(124,107,255,0.15);
+  }
+
+  .input-group input::placeholder { color: var(--text-muted); }
+
+  .toggle-pw {
+    position: absolute;
+    right: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0;
+    transition: color 0.2s;
+  }
+  .toggle-pw:hover { color: var(--text); }
+
+  .btn-primary {
+    width: 100%;
+    background: linear-gradient(135deg, var(--accent), #9b55ff);
+    border: none;
+    border-radius: 12px;
+    padding: 0.9rem;
+    color: #fff;
+    font-family: var(--font);
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+    margin-top: 0.5rem;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(124,107,255,0.4);
+  }
+  .btn-primary:active { transform: translateY(0); }
+
+  .lock-hint {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-align: center;
+    margin-top: 1.25rem;
+    line-height: 1.6;
+  }
+
+  .error-msg {
+    color: var(--danger);
+    font-size: 0.8rem;
+    font-family: var(--mono);
+    margin-top: 0.5rem;
+    display: none;
+  }
+
+  /* ─── MAIN APP ─── */
+  #main-app { display: none; }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 2rem;
+    background: rgba(5,8,24,0.7);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--glass-border);
+  }
+
+  .topbar-logo {
+    font-size: 1.4rem;
+    font-weight: 800;
+    letter-spacing: -1px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .topbar-actions { display: flex; gap: 0.75rem; align-items: center; }
+
+  .btn-icon {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 0.5rem 0.85rem;
+    color: var(--text-muted);
+    font-family: var(--font);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    white-space: nowrap;
+  }
+  .btn-icon:hover { background: var(--glass-hover); color: var(--text); border-color: rgba(255,255,255,0.2); }
+  .btn-icon.danger:hover { border-color: var(--danger); color: var(--danger); background: rgba(255,79,107,0.08); }
+
+  .content {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+
+  /* ─── SEARCH & FILTERS ─── */
+  .search-bar {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+
+  .search-input-wrap {
+    flex: 1;
+    min-width: 220px;
+    position: relative;
+  }
+
+  .search-input-wrap span {
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 0.9rem;
+  }
+
+  .search-input-wrap input {
+    width: 100%;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 0.75rem 1rem 0.75rem 2.5rem;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    outline: none;
+    transition: all 0.2s;
+  }
+  .search-input-wrap input:focus { border-color: var(--accent); background: rgba(124,107,255,0.06); }
+  .search-input-wrap input::placeholder { color: var(--text-muted); }
+
+  .filter-tags {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .tag-pill {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .tag-pill:hover, .tag-pill.active { background: rgba(124,107,255,0.18); border-color: var(--accent); color: var(--accent); }
+
+  /* ─── STATS BAR ─── */
+  .stats-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+
+  .stat-card {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--card-radius);
+    padding: 1rem 1.4rem;
+    flex: 1;
+    min-width: 120px;
+  }
+
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 0.35rem;
+  }
+
+  .stat-value {
+    font-size: 1.8rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* ─── PASSWORD GRID ─── */
+  .pw-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+    gap: 1rem;
+  }
+
+  .pw-card {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--card-radius);
+    padding: 1.25rem;
+    transition: all 0.25s;
+    cursor: default;
+    position: relative;
+    overflow: hidden;
+    animation: slideUp 0.3s ease forwards;
+    opacity: 0;
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .pw-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  }
+
+  .pw-card:hover {
+    background: var(--glass-hover);
+    border-color: rgba(255,255,255,0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 16px 40px rgba(0,0,0,0.3);
+  }
+
+  .pw-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+  }
+
+  .pw-site-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    font-weight: 800;
+    flex-shrink: 0;
+    margin-right: 0.75rem;
+  }
+
+  .pw-title-wrap { flex: 1; min-width: 0; }
+
+  .pw-site-name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .pw-username {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: 0.1rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .pw-card-tag {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.25rem 0.6rem;
+    border-radius: 20px;
+    background: rgba(124,107,255,0.15);
+    color: var(--accent);
+    white-space: nowrap;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .pw-password-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(0,0,0,0.2);
+    border-radius: 10px;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .pw-mask {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    flex: 1;
+    letter-spacing: 2px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pw-card-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .btn-sm {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 0.35rem 0.65rem;
+    color: var(--text-muted);
+    font-family: var(--font);
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .btn-sm:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+  .btn-sm.copy:hover { border-color: var(--accent3); color: var(--accent3); background: rgba(107,255,212,0.08); }
+  .btn-sm.edit-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(124,107,255,0.08); }
+  .btn-sm.del:hover { border-color: var(--danger); color: var(--danger); background: rgba(255,79,107,0.08); }
+
+  .btn-sm.copied { border-color: var(--success); color: var(--success); background: rgba(79,255,180,0.08); }
+
+  .pw-url {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 4rem;
+    color: var(--text-muted);
+  }
+  .empty-state .empty-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.4; }
+  .empty-state p { font-family: var(--mono); font-size: 0.85rem; }
+
+  /* ─── MODAL ─── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    animation: fadeIn 0.2s ease;
+  }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal {
+    background: rgba(10,12,30,0.95);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    padding: 2rem;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.6);
+    animation: scaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  @keyframes scaleIn { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+
+  .modal h3 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-bottom: 1.5rem;
+    background: linear-gradient(135deg, var(--text), var(--text-muted));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .form-row { margin-bottom: 1rem; }
+
+  .form-row label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 0.4rem;
+  }
+
+  .form-row input, .form-row select {
+    width: 100%;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    outline: none;
+    transition: all 0.2s;
+  }
+  .form-row input:focus, .form-row select:focus { border-color: var(--accent); background: rgba(124,107,255,0.06); }
+  .form-row input::placeholder { color: var(--text-muted); }
+  .form-row select option { background: #0d0f25; }
+
+  .pw-gen-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .pw-gen-row input { flex: 1; }
+
+  .btn-gen {
+    background: linear-gradient(135deg, var(--accent), #9b55ff);
+    border: none;
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    color: #fff;
+    font-family: var(--font);
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .btn-gen:hover { box-shadow: 0 4px 16px rgba(124,107,255,0.4); }
+
+  .strength-bar {
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.08);
+    margin-top: 0.4rem;
+    overflow: hidden;
+  }
+  .strength-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: all 0.4s;
+  }
+
+  .modal-actions { display: flex; gap: 0.75rem; margin-top: 1.5rem; }
+  .btn-cancel {
+    flex: 1;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 0.8rem;
+    color: var(--text-muted);
+    font-family: var(--font);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-cancel:hover { background: var(--glass-hover); color: var(--text); }
+  .btn-save {
+    flex: 2;
+    background: linear-gradient(135deg, var(--accent), #9b55ff);
+    border: none;
+    border-radius: 10px;
+    padding: 0.8rem;
+    color: #fff;
+    font-family: var(--font);
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-save:hover { box-shadow: 0 6px 20px rgba(124,107,255,0.4); transform: translateY(-1px); }
+
+  /* ─── GEN OPTIONS ─── */
+  .gen-opts {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .gen-opt-label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .gen-opt-label input[type="checkbox"] { accent-color: var(--accent); }
+  .gen-len { display: flex; align-items: center; gap: 0.5rem; font-family: var(--mono); font-size: 0.72rem; color: var(--text-muted); }
+  .gen-len input[type="range"] { width: 80px; accent-color: var(--accent); }
+  .gen-len span { color: var(--accent); font-weight: 600; }
+
+  /* ─── FLOATING BUTTON ─── */
+  #fab {
+    position: fixed;
+    z-index: 300;
+    bottom: 2rem;
+    right: 2rem;
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none;
+    color: #fff;
+    font-size: 1.5rem;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 32px rgba(124,107,255,0.5), 0 2px 8px rgba(0,0,0,0.3);
+    transition: box-shadow 0.2s, transform 0.1s;
+    user-select: none;
+    touch-action: none;
+  }
+  #fab:hover { box-shadow: 0 12px 40px rgba(124,107,255,0.7), 0 2px 8px rgba(0,0,0,0.3); }
+  #fab:active { cursor: grabbing; }
+  #fab.pulse { animation: fabPulse 2s infinite; }
+  @keyframes fabPulse {
+    0%, 100% { box-shadow: 0 8px 32px rgba(124,107,255,0.5); }
+    50% { box-shadow: 0 8px 48px rgba(255,107,157,0.7); }
+  }
+
+  /* ─── TOAST ─── */
+  #toast {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: rgba(10,12,30,0.95);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 0.75rem 1.5rem;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--text);
+    z-index: 500;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.success { border-color: var(--success); color: var(--success); }
+  #toast.error-t { border-color: var(--danger); color: var(--danger); }
+
+  /* ─── GENERATOR STANDALONE ─── */
+  #gen-modal .modal { max-width: 440px; }
+
+  .gen-result {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 1rem;
+    font-family: var(--mono);
+    font-size: 1rem;
+    color: var(--accent3);
+    word-break: break-all;
+    line-height: 1.5;
+    margin-bottom: 0.75rem;
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+  }
+
+  .pw-notes {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 0.3rem;
+    font-style: italic;
+  }
+
+  @media (max-width: 600px) {
+    .topbar { padding: 0.75rem 1rem; }
+    .content { padding: 1rem; }
+    .stats-row { display: none; }
+    .topbar-logo { font-size: 1.1rem; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- LOCK SCREEN -->
+  <div id="lock-screen">
+    <div class="lock-logo">VAULT</div>
+    <div class="lock-tagline">Offline · Encrypted · Private</div>
+    <div class="lock-card">
+      <h2 id="lock-title">Déverrouiller le coffre</h2>
+      <div class="input-group">
+        <input type="password" id="master-input" placeholder="Mot de passe maître..." autocomplete="off">
+        <button class="toggle-pw" onclick="togglePw('master-input', this)">👁</button>
+      </div>
+      <p class="error-msg" id="lock-error">❌ Mot de passe incorrect</p>
+      <button class="btn-primary" onclick="unlock()">Ouvrir le coffre →</button>
+      <p class="lock-hint" id="lock-hint">
+        Vos données sont chiffrées avec AES-256 et stockées localement.<br>
+        Aucune donnée n'est envoyée sur internet.
+      </p>
+    </div>
+  </div>
+
+  <!-- MAIN APP -->
+  <div id="main-app">
+    <div class="topbar">
+      <div class="topbar-logo">VAULT</div>
+      <div class="topbar-actions">
+        <button class="btn-icon" onclick="openGenModal()">⚡ Générer</button>
+        <button class="btn-icon" onclick="exportData()">↑ Export</button>
+        <label class="btn-icon" style="cursor:pointer">
+          ↓ Import
+          <input type="file" accept=".json" onchange="importData(event)" style="display:none">
+        </label>
+        <button class="btn-icon danger" onclick="lockApp()">🔒 Verrouiller</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="stats-row" id="stats-row"></div>
+
+      <div class="search-bar">
+        <div class="search-input-wrap">
+          <span>🔍</span>
+          <input type="text" id="search-input" placeholder="Rechercher..." oninput="renderCards()">
+        </div>
+        <div class="filter-tags" id="filter-tags"></div>
+      </div>
+
+      <div class="pw-grid" id="pw-grid"></div>
+    </div>
+  </div>
+
+  <!-- FAB -->
+  <button id="fab" class="pulse" onclick="openAddModal()" title="Ajouter un mot de passe">＋</button>
+
+  <!-- ADD/EDIT MODAL -->
+  <div class="modal-overlay" id="add-modal" style="display:none" onclick="closeAddModal(event)">
+    <div class="modal">
+      <h3 id="modal-title">🔐 Nouveau mot de passe</h3>
+      <input type="hidden" id="edit-id">
+      <div class="form-row">
+        <label>Site / Application</label>
+        <input type="text" id="f-site" placeholder="ex: Netflix">
+      </div>
+      <div class="form-row">
+        <label>URL</label>
+        <input type="text" id="f-url" placeholder="ex: netflix.com">
+      </div>
+      <div class="form-row">
+        <label>Identifiant / Email</label>
+        <input type="text" id="f-user" placeholder="ex: moi@email.com" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <label>Mot de passe</label>
+        <div class="pw-gen-row">
+          <div class="input-group" style="flex:1;margin-bottom:0">
+            <input type="password" id="f-pw" placeholder="Mot de passe" autocomplete="new-password">
+            <button class="toggle-pw" onclick="togglePw('f-pw', this)">👁</button>
+          </div>
+          <button class="btn-gen" onclick="genAndFill()">⚡ Générer</button>
+        </div>
+        <div class="strength-bar"><div class="strength-fill" id="strength-fill"></div></div>
+        <div class="gen-opts" style="margin-top:0.6rem">
+          <div class="gen-len">
+            Long. : <input type="range" id="gen-len" min="8" max="64" value="20" oninput="document.getElementById('gen-len-val').textContent=this.value">
+            <span id="gen-len-val">20</span>
+          </div>
+          <label class="gen-opt-label"><input type="checkbox" id="gen-upper" checked> A-Z</label>
+          <label class="gen-opt-label"><input type="checkbox" id="gen-nums" checked> 0-9</label>
+          <label class="gen-opt-label"><input type="checkbox" id="gen-sym" checked> !@#</label>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Catégorie / Tag</label>
+        <select id="f-tag">
+          <option value="">Aucune</option>
+          <option value="Réseaux sociaux">Réseaux sociaux</option>
+          <option value="Email">Email</option>
+          <option value="Finance">Finance</option>
+          <option value="Streaming">Streaming</option>
+          <option value="Travail">Travail</option>
+          <option value="Shopping">Shopping</option>
+          <option value="Jeux">Jeux</option>
+          <option value="Autre">Autre</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Notes (optionnel)</label>
+        <input type="text" id="f-notes" placeholder="ex: compte pro, 2FA activé...">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('add-modal')">Annuler</button>
+        <button class="btn-save" onclick="saveEntry()">Sauvegarder 🔐</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- GEN STANDALONE MODAL -->
+  <div class="modal-overlay" id="gen-modal" style="display:none" onclick="closeAddModal(event)">
+    <div class="modal">
+      <h3>⚡ Générateur de mot de passe</h3>
+      <div class="gen-result" id="gen-display">Cliquez sur Générer...</div>
+      <div class="gen-opts">
+        <div class="gen-len">
+          Long. : <input type="range" id="gen-len2" min="8" max="64" value="24" oninput="document.getElementById('gen-len-val2').textContent=this.value; genStandalone()">
+          <span id="gen-len-val2">24</span>
+        </div>
+        <label class="gen-opt-label"><input type="checkbox" id="gen-upper2" checked onchange="genStandalone()"> A-Z</label>
+        <label class="gen-opt-label"><input type="checkbox" id="gen-nums2" checked onchange="genStandalone()"> 0-9</label>
+        <label class="gen-opt-label"><input type="checkbox" id="gen-sym2" checked onchange="genStandalone()"> !@#</label>
+      </div>
+      <div class="strength-bar"><div class="strength-fill" id="strength-fill2"></div></div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('gen-modal')">Fermer</button>
+        <button class="btn-gen" style="flex:1" onclick="genStandalone()">Générer</button>
+        <button class="btn-save" style="flex:1" onclick="copyGenResult()">Copier</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast"></div>
+
+</div>
+
+<script>
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let masterKey = null;
+let entries = [];
+let activeTag = null;
+const STORAGE_KEY = 'vault_data_v1';
+const CHECK_KEY = 'vault_check_v1';
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+window.onload = () => {
+  const hasData = localStorage.getItem(STORAGE_KEY);
+  if (!hasData) {
+    document.getElementById('lock-title').textContent = 'Créer un mot de passe maître';
+    document.getElementById('lock-hint').innerHTML =
+      'Choisissez un mot de passe maître fort.<br>Il chiffrera toutes vos données en AES-256.';
+  }
+  document.getElementById('master-input').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+  initFAB();
+};
+
+// ─── LOCK / UNLOCK ────────────────────────────────────────────────────────────
+function unlock() {
+  const pw = document.getElementById('master-input').value;
+  if (!pw) return;
+  masterKey = pw;
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (!stored) {
+    entries = [];
+    saveToStorage();
+    showApp();
+    return;
+  }
+  try {
+    const dec = CryptoJS.AES.decrypt(stored, masterKey).toString(CryptoJS.enc.Utf8);
+    if (!dec) throw new Error();
+    entries = JSON.parse(dec);
+    showApp();
+  } catch {
+    document.getElementById('lock-error').style.display = 'block';
+    document.getElementById('master-input').value = '';
+  }
+}
+
+function showApp() {
+  document.getElementById('lock-screen').style.display = 'none';
+  document.getElementById('main-app').style.display = 'block';
+  renderStats();
+  renderFilterTags();
+  renderCards();
+}
+
+function lockApp() {
+  masterKey = null;
+  entries = [];
+  activeTag = null;
+  document.getElementById('main-app').style.display = 'none';
+  document.getElementById('lock-screen').style.display = 'flex';
+  document.getElementById('master-input').value = '';
+  document.getElementById('lock-error').style.display = 'none';
+  document.getElementById('lock-title').textContent = 'Déverrouiller le coffre';
+  document.getElementById('lock-hint').innerHTML = 'Vos données sont chiffrées avec AES-256 et stockées localement.<br>Aucune donnée n\'est envoyée sur internet.';
+}
+
+// ─── STORAGE ──────────────────────────────────────────────────────────────────
+function saveToStorage() {
+  const enc = CryptoJS.AES.encrypt(JSON.stringify(entries), masterKey).toString();
+  localStorage.setItem(STORAGE_KEY, enc);
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────────────────
+const tagColors = {
+  'Réseaux sociaux': '#ff6b9d', 'Email': '#6bffd4', 'Finance': '#ffd46b',
+  'Streaming': '#ff6b6b', 'Travail': '#6bb5ff', 'Shopping': '#ff9d6b',
+  'Jeux': '#d46bff', 'Autre': '#aaa'
+};
+
+function renderStats() {
+  const cats = [...new Set(entries.map(e => e.tag).filter(Boolean))];
+  document.getElementById('stats-row').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Mots de passe</div><div class="stat-value">${entries.length}</div></div>
+    <div class="stat-card"><div class="stat-label">Catégories</div><div class="stat-value">${cats.length}</div></div>
+    <div class="stat-card"><div class="stat-label">Stockage</div><div class="stat-value" style="font-size:1.2rem;padding-top:4px">🔐 Local</div></div>
+  `;
+}
+
+function renderFilterTags() {
+  const tags = [...new Set(entries.map(e => e.tag).filter(Boolean))];
+  const wrap = document.getElementById('filter-tags');
+  wrap.innerHTML = `<div class="tag-pill ${activeTag===null?'active':''}" onclick="setFilter(null)">Tous</div>`;
+  tags.forEach(t => {
+    const d = document.createElement('div');
+    d.className = `tag-pill ${activeTag===t?'active':''}`;
+    d.textContent = t;
+    d.onclick = () => setFilter(t);
+    wrap.appendChild(d);
+  });
+}
+
+function setFilter(tag) {
+  activeTag = tag;
+  renderFilterTags();
+  renderCards();
+}
+
+function renderCards() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  let list = entries.filter(e =>
+    (!activeTag || e.tag === activeTag) &&
+    (!q || e.site.toLowerCase().includes(q) || (e.username||'').toLowerCase().includes(q) || (e.url||'').toLowerCase().includes(q))
+  );
+  const grid = document.getElementById('pw-grid');
+  if (list.length === 0) {
+    grid.innerHTML = `<div class="empty-state"><div class="empty-icon">🔒</div><p>Aucun mot de passe trouvé.<br>Cliquez sur + pour en ajouter un.</p></div>`;
+    return;
+  }
+  grid.innerHTML = list.map((e, i) => {
+    const initials = e.site.substring(0,2).toUpperCase();
+    const color = tagColors[e.tag] || '#7c6bff';
+    const tagHue = `color:${color};background:${color}22;border-color:${color}44`;
+    return `
+    <div class="pw-card" style="animation-delay:${i*0.04}s">
+      <div class="pw-card-header">
+        <div style="display:flex;align-items:center;flex:1;min-width:0">
+          <div class="pw-site-icon" style="background:${color}22;color:${color}">${initials}</div>
+          <div class="pw-title-wrap">
+            <div class="pw-site-name">${esc(e.site)}</div>
+            <div class="pw-username">${esc(e.username || '—')}</div>
+          </div>
+        </div>
+        ${e.tag ? `<div class="pw-card-tag" style="${tagHue}">${esc(e.tag)}</div>` : ''}
+      </div>
+      ${e.url ? `<div class="pw-url">🌐 ${esc(e.url)}</div>` : ''}
+      <div class="pw-password-row">
+        <span class="pw-mask" id="pw-mask-${e.id}">••••••••••••</span>
+        <button class="btn-sm" onclick="toggleReveal('${e.id}')">👁</button>
+      </div>
+      ${e.notes ? `<div class="pw-notes">📝 ${esc(e.notes)}</div>` : ''}
+      <div class="pw-card-actions" style="margin-top:0.6rem">
+        <button class="btn-sm copy" id="copy-btn-${e.id}" onclick="copyPw('${e.id}')">📋 Copier</button>
+        <button class="btn-sm edit-btn" onclick="openEdit('${e.id}')">✏️ Modifier</button>
+        <button class="btn-sm del" onclick="deleteEntry('${e.id}')">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── COPY ─────────────────────────────────────────────────────────────────────
+function copyPw(id) {
+  const e = entries.find(x => x.id === id);
+  if (!e) return;
+  navigator.clipboard.writeText(e.password).then(() => {
+    const btn = document.getElementById('copy-btn-' + id);
+    if (btn) { btn.textContent = '✅ Copié!'; btn.classList.add('copied'); setTimeout(() => { btn.textContent = '📋 Copier'; btn.classList.remove('copied'); }, 2000); }
+    showToast('Mot de passe copié !', 'success');
+  });
+}
+
+function toggleReveal(id) {
+  const e = entries.find(x => x.id === id);
+  if (!e) return;
+  const el = document.getElementById('pw-mask-' + id);
+  if (!el) return;
+  el.textContent = el.textContent === '••••••••••••' ? e.password : '••••••••••••';
+  el.style.color = el.textContent === '••••••••••••' ? 'var(--text-muted)' : 'var(--accent3)';
+}
+
+// ─── ADD / EDIT ───────────────────────────────────────────────────────────────
+function openAddModal() {
+  document.getElementById('modal-title').textContent = '🔐 Nouveau mot de passe';
+  document.getElementById('edit-id').value = '';
+  ['f-site','f-url','f-user','f-pw','f-notes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f-tag').value = '';
+  document.getElementById('strength-fill').style.width = '0';
+  document.getElementById('add-modal').style.display = 'flex';
+  document.getElementById('f-site').focus();
+  document.getElementById('f-pw').addEventListener('input', updateStrengthModal);
+}
+
+function openEdit(id) {
+  const e = entries.find(x => x.id === id);
+  if (!e) return;
+  document.getElementById('modal-title').textContent = '✏️ Modifier';
+  document.getElementById('edit-id').value = id;
+  document.getElementById('f-site').value = e.site;
+  document.getElementById('f-url').value = e.url || '';
+  document.getElementById('f-user').value = e.username || '';
+  document.getElementById('f-pw').value = e.password;
+  document.getElementById('f-tag').value = e.tag || '';
+  document.getElementById('f-notes').value = e.notes || '';
+  updateStrengthModal();
+  document.getElementById('add-modal').style.display = 'flex';
+}
+
+function saveEntry() {
+  const site = document.getElementById('f-site').value.trim();
+  const pw = document.getElementById('f-pw').value;
+  if (!site || !pw) { showToast('Site et mot de passe requis', 'error-t'); return; }
+  const id = document.getElementById('edit-id').value;
+  const data = {
+    id: id || Date.now().toString(),
+    site,
+    url: document.getElementById('f-url').value.trim(),
+    username: document.getElementById('f-user').value.trim(),
+    password: pw,
+    tag: document.getElementById('f-tag').value,
+    notes: document.getElementById('f-notes').value.trim(),
+    createdAt: id ? (entries.find(e=>e.id===id)||{}).createdAt : Date.now()
+  };
+  if (id) { const i = entries.findIndex(e => e.id === id); if (i>-1) entries[i] = data; }
+  else entries.unshift(data);
+  saveToStorage();
+  renderStats(); renderFilterTags(); renderCards();
+  closeModal('add-modal');
+  showToast(id ? 'Modifié !' : 'Ajouté !', 'success');
+}
+
+function deleteEntry(id) {
+  if (!confirm('Supprimer ce mot de passe ?')) return;
+  entries = entries.filter(e => e.id !== id);
+  saveToStorage(); renderStats(); renderFilterTags(); renderCards();
+  showToast('Supprimé', 'success');
+}
+
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+function closeAddModal(e) { if (e.target.classList.contains('modal-overlay')) { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display='none'); } }
+
+// ─── PASSWORD GENERATOR ───────────────────────────────────────────────────────
+function generatePassword(len, upper, nums, syms) {
+  let chars = 'abcdefghijklmnopqrstuvwxyz';
+  if (upper) chars += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  if (nums) chars += '0123456789';
+  if (syms) chars += '!@#$%^&*()_+-=[]{}|;:,.<>?';
+  let pw = '';
+  const arr = new Uint32Array(len);
+  crypto.getRandomValues(arr);
+  for (let i = 0; i < len; i++) pw += chars[arr[i] % chars.length];
+  return pw;
+}
+
+function genAndFill() {
+  const pw = generatePassword(
+    parseInt(document.getElementById('gen-len').value),
+    document.getElementById('gen-upper').checked,
+    document.getElementById('gen-nums').checked,
+    document.getElementById('gen-sym').checked
+  );
+  const el = document.getElementById('f-pw');
+  el.value = pw;
+  el.type = 'text';
+  updateStrengthModal();
+  setTimeout(() => el.type = 'password', 1500);
+}
+
+function openGenModal() {
+  document.getElementById('gen-modal').style.display = 'flex';
+  genStandalone();
+}
+
+function genStandalone() {
+  const pw = generatePassword(
+    parseInt(document.getElementById('gen-len2').value),
+    document.getElementById('gen-upper2').checked,
+    document.getElementById('gen-nums2').checked,
+    document.getElementById('gen-sym2').checked
+  );
+  document.getElementById('gen-display').textContent = pw;
+  updateStrength(pw, 'strength-fill2');
+}
+
+function copyGenResult() {
+  const pw = document.getElementById('gen-display').textContent;
+  navigator.clipboard.writeText(pw).then(() => showToast('Copié !', 'success'));
+}
+
+function getStrength(pw) {
+  let s = 0;
+  if (pw.length >= 8) s++;
+  if (pw.length >= 14) s++;
+  if (pw.length >= 20) s++;
+  if (/[A-Z]/.test(pw)) s++;
+  if (/[0-9]/.test(pw)) s++;
+  if (/[^A-Za-z0-9]/.test(pw)) s++;
+  return Math.min(s, 5);
+}
+
+function updateStrength(pw, fillId) {
+  const s = getStrength(pw);
+  const colors = ['', '#ff4f6b','#ff9d6b','#ffd46b','#6bffd4','#4fffb4'];
+  const widths = ['0%','20%','40%','60%','80%','100%'];
+  const el = document.getElementById(fillId);
+  el.style.width = widths[s];
+  el.style.background = colors[s] || 'transparent';
+}
+
+function updateStrengthModal() { updateStrength(document.getElementById('f-pw').value, 'strength-fill'); }
+
+// ─── IMPORT / EXPORT ──────────────────────────────────────────────────────────
+function exportData() {
+  const data = JSON.stringify({ vault: 'VAULT_APP', version: 1, entries }, null, 2);
+  const blob = new Blob([data], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `vault_export_${Date.now()}.json`;
+  a.click(); URL.revokeObjectURL(url);
+  showToast('Export réussi !', 'success');
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      const imported = data.entries || data;
+      if (!Array.isArray(imported)) throw new Error();
+      const merged = [...entries];
+      let added = 0;
+      imported.forEach(item => {
+        if (!merged.find(x => x.id === item.id)) { merged.push(item); added++; }
+      });
+      entries = merged;
+      saveToStorage(); renderStats(); renderFilterTags(); renderCards();
+      showToast(`${added} entrée(s) importée(s) !`, 'success');
+    } catch { showToast('Fichier invalide', 'error-t'); }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+// ─── FAB DRAG ─────────────────────────────────────────────────────────────────
+function initFAB() {
+  const fab = document.getElementById('fab');
+  let dragging = false, startX, startY, startLeft, startTop;
+
+  function getPos() {
+    const r = fab.getBoundingClientRect();
+    return { left: r.left, top: r.top };
+  }
+
+  function startDrag(cx, cy) {
+    dragging = false;
+    const pos = getPos();
+    startX = cx; startY = cy;
+    startLeft = pos.left; startTop = pos.top;
+    fab.style.right = 'auto';
+    fab.style.bottom = 'auto';
+    fab.style.left = startLeft + 'px';
+    fab.style.top = startTop + 'px';
+  }
+
+  function moveDrag(cx, cy) {
+    const dx = cx - startX, dy = cy - startY;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) dragging = true;
+    if (!dragging) return;
+    fab.style.cursor = 'grabbing';
+    const newLeft = Math.max(0, Math.min(window.innerWidth - 60, startLeft + dx));
+    const newTop = Math.max(0, Math.min(window.innerHeight - 60, startTop + dy));
+    fab.style.left = newLeft + 'px';
+    fab.style.top = newTop + 'px';
+  }
+
+  function endDrag() {
+    fab.style.cursor = 'grab';
+    if (dragging) { dragging = false; return false; }
+    return true;
+  }
+
+  fab.addEventListener('mousedown', e => { e.preventDefault(); startDrag(e.clientX, e.clientY); });
+  document.addEventListener('mousemove', e => { if (startX !== undefined) moveDrag(e.clientX, e.clientY); });
+  document.addEventListener('mouseup', e => { if (!endDrag()) e.preventDefault(); startX = undefined; });
+
+  fab.addEventListener('touchstart', e => { const t = e.touches[0]; startDrag(t.clientX, t.clientY); }, {passive:true});
+  document.addEventListener('touchmove', e => { if (startX !== undefined) { const t = e.touches[0]; moveDrag(t.clientX, t.clientY); } }, {passive:true});
+  document.addEventListener('touchend', () => { endDrag(); startX = undefined; });
+
+  fab.addEventListener('click', e => { if (dragging) { e.stopPropagation(); dragging = false; } });
+}
+
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.className = '', 2200);
+}
+
+function togglePw(inputId, btn) {
+  const el = document.getElementById(inputId);
+  if (el.type === 'password') { el.type = 'text'; btn.textContent = '🙈'; }
+  else { el.type = 'password'; btn.textContent = '👁'; }
+}
+</script>
+</body>
+</html>
